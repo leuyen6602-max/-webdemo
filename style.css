@@ -1,0 +1,646 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WildScan Dong Thap</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- FontAwesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- Leaflet CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+
+    <style>
+        /* Animation quét AI */
+        @keyframes scanLine {
+            0% { top: 0%; opacity: 0; }
+            10% { opacity: 1; }
+            90% { opacity: 1; }
+            100% { top: 100%; opacity: 0; }
+        }
+        .scan-overlay {
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.3);
+            overflow: hidden;
+            display: none;
+            border-radius: 0.5rem;
+        }
+        .scan-line {
+            position: absolute;
+            width: 100%;
+            height: 4px;
+            background: #00ff00;
+            box-shadow: 0 0 10px #00ff00;
+            animation: scanLine 2s infinite linear;
+        }
+        #map { height: 300px; width: 100%; z-index: 1; border-radius: 0.5rem; }
+        
+        /* Class ẩn dùng !important để đảm bảo ẩn triệt để */
+        .hidden-section { display: none !important; }
+        
+        /* Style cho nav item active */
+        .nav-item.active {
+            background-color: rgba(255, 255, 255, 0.2);
+            font-weight: bold;
+            border-bottom: 2px solid white;
+        }
+    </style>
+</head>
+<body class="bg-gray-50 text-gray-800 font-sans min-h-screen flex flex-col">
+
+    <!-- Navbar: Chia làm 2 mục rõ ràng -->
+    <nav class="bg-green-700 text-white shadow-lg sticky top-0 z-50">
+        <div class="container mx-auto px-4">
+            <div class="flex justify-between items-center h-14">
+                <!-- Logo bên trái -->
+                <div class="flex items-center gap-2">
+                    <i class="fa-solid fa-paw text-2xl"></i>
+                    <h1 class="font-bold text-lg hidden md:block">WildScan Dong Thap</h1>
+                </div>
+
+                <!-- Menu điều hướng bên phải -->
+                <div class="flex space-x-1 h-full">
+                    <!-- Nút Chuyển trang Tra cứu -->
+                    <button onclick="app.navTo('home')" id="nav-home" class="nav-item active px-4 h-full flex items-center gap-2 hover:bg-green-600 transition">
+                        <i class="fa-solid fa-magnifying-glass"></i> 
+                        <span>Tra Cứu AI</span>
+                    </button>
+                    
+                    <!-- Nút Chuyển trang Admin -->
+                    <button onclick="app.navTo('admin')" id="nav-admin" class="nav-item px-4 h-full flex items-center gap-2 hover:bg-green-600 transition">
+                        <i class="fa-solid fa-user-shield"></i> 
+                        <span>Quản Trị Viên</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <main class="flex-grow container mx-auto px-4 py-6">
+
+        <!-- === MỤC 1: TRANG CHỦ / NHẬN DIỆN (USER) === -->
+        <div id="section-home" class="max-w-2xl mx-auto">
+            <div class="text-center mb-8">
+                <h2 class="text-2xl font-bold text-green-800 mb-2">Nhận Diện Động Vật Hoang Dã</h2>
+                <p class="text-gray-600">Tải ảnh hoặc chụp trực tiếp để AI phân tích loài vật.</p>
+            </div>
+
+            <!-- Khu vực Upload/Camera -->
+            <div class="bg-white p-6 rounded-xl shadow-md border border-gray-200">
+                <div class="mb-4 relative group">
+                    <div id="image-preview-container" class="w-full h-64 bg-gray-100 rounded-lg border-2 border-dashed border-gray-300 flex items-center justify-center overflow-hidden relative">
+                        <img id="preview-img" src="" alt="Preview" class="w-full h-full object-contain hidden">
+                        <div id="upload-placeholder" class="text-center text-gray-400">
+                            <i class="fa-solid fa-camera text-4xl mb-2"></i>
+                            <p>Chụp ảnh hoặc tải lên từ thư viện</p>
+                        </div>
+                        <!-- Hiệu ứng quét -->
+                        <div id="scan-effect" class="scan-overlay">
+                            <div class="scan-line"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-2 gap-4 mb-4">
+                    <label class="cursor-pointer bg-blue-600 hover:bg-blue-700 text-white py-3 px-4 rounded-lg text-center transition flex items-center justify-center gap-2">
+                        <i class="fa-solid fa-image"></i> Chọn Ảnh
+                        <input type="file" id="file-input" accept="image/*" class="hidden" onchange="app.handleImageUpload(this)">
+                    </label>
+                    <label class="cursor-pointer bg-teal-600 hover:bg-teal-700 text-white py-3 px-4 rounded-lg text-center transition flex items-center justify-center gap-2">
+                        <i class="fa-solid fa-camera"></i> Chụp Ảnh
+                        <input type="file" id="camera-input" accept="image/*" capture="environment" class="hidden" onchange="app.handleImageUpload(this)">
+                    </label>
+                </div>
+
+                <button onclick="app.startScan()" id="btn-scan" disabled class="w-full bg-green-600 disabled:bg-gray-400 hover:bg-green-700 text-white font-bold py-3 px-4 rounded-lg shadow transition text-lg">
+                    <i class="fa-solid fa-magnifying-glass"></i> PHÂN TÍCH AI
+                </button>
+            </div>
+
+            <!-- Kết quả Phân tích -->
+            <div id="result-card" class="hidden mt-8 bg-white rounded-xl shadow-lg overflow-hidden border border-green-200 transition-all duration-500">
+                <div class="bg-green-600 p-4 text-white flex justify-between items-center">
+                    <h3 class="font-bold text-xl"><i class="fa-solid fa-check-circle"></i> Kết quả nhận diện</h3>
+                    <span class="text-sm bg-green-800 px-2 py-1 rounded" id="res-confidence">Độ tin cậy: 98%</span>
+                </div>
+                <div class="p-6">
+                    <h2 id="res-name" class="text-3xl font-bold text-gray-800 mb-2">Sếu Đầu Đỏ</h2>
+                    <p class="text-sm text-gray-500 italic mb-4" id="res-latin">Grus antigone sharpii</p>
+                    
+                    <div class="space-y-3 mb-6">
+                        <div class="flex items-start gap-3">
+                            <i class="fa-solid fa-circle-info text-green-600 mt-1"></i>
+                            <div>
+                                <span class="font-semibold">Đặc điểm:</span>
+                                <p id="res-desc" class="text-gray-700">Cao lớn, đầu và cổ trụi lông màu đỏ.</p>
+                            </div>
+                        </div>
+                        <div class="flex items-start gap-3">
+                            <i class="fa-solid fa-tree text-green-600 mt-1"></i>
+                            <div>
+                                <span class="font-semibold">Môi trường sống:</span>
+                                <p id="res-habitat" class="text-gray-700">Đồng cỏ ngập nước, rừng tràm.</p>
+                            </div>
+                        </div>
+                        <div class="flex items-start gap-3">
+                            <i class="fa-solid fa-shield-heart text-red-500 mt-1"></i>
+                            <div>
+                                <span class="font-semibold">Tình trạng bảo tồn:</span>
+                                <span id="res-status" class="bg-red-100 text-red-800 text-xs font-semibold px-2 py-0.5 rounded">Sắp nguy cấp (VU)</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Bản đồ -->
+                    <div class="border rounded-lg overflow-hidden">
+                        <div class="bg-gray-100 p-2 border-b text-sm font-semibold"><i class="fa-solid fa-map-location-dot"></i> Phân bố tại Đồng Tháp</div>
+                        <div id="map"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- === MỤC 2: KHUNG ĐĂNG NHẬP ADMIN === -->
+        <div id="section-login" class="hidden-section max-w-md mx-auto mt-10">
+            <div class="bg-white p-8 rounded-xl shadow-md border-t-4 border-green-600">
+                <div class="text-center mb-6">
+                    <div class="bg-green-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 text-green-600">
+                        <i class="fa-solid fa-lock text-2xl"></i>
+                    </div>
+                    <h2 class="text-2xl font-bold text-gray-800">Khu Vực Quản Trị</h2>
+                    <p class="text-sm text-gray-500">Vui lòng đăng nhập để chỉnh sửa dữ liệu</p>
+                </div>
+                
+                <div class="mb-6">
+                    <label class="block text-gray-700 text-sm font-bold mb-2">Mật khẩu bảo mật</label>
+                    <input type="password" id="admin-pass" class="w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 transition" placeholder="Nhập mật khẩu...">
+                </div>
+                <button onclick="app.login()" class="w-full bg-green-700 text-white font-bold py-3 px-4 rounded-lg hover:bg-green-800 transition transform active:scale-95">
+                    Đăng Nhập Hệ Thống
+                </button>
+                <div class="mt-6 text-center">
+                    <p class="text-xs text-gray-400">IP của bạn đang được ghi lại vì lý do bảo mật.</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- === MỤC 3: BẢNG ĐIỀU KHIỂN ADMIN (Hiện sau khi đăng nhập thành công) === -->
+        <div id="section-admin" class="hidden-section">
+            <div class="flex flex-col md:flex-row justify-between items-center mb-6 bg-white p-4 rounded-lg shadow-sm">
+                <div>
+                    <h2 class="text-2xl font-bold text-gray-800">Bảng Điều Khiển</h2>
+                    <p class="text-sm text-gray-500">Quản lý cơ sở dữ liệu loài vật và nhật ký hệ thống.</p>
+                </div>
+                <div class="mt-4 md:mt-0">
+                     <span class="text-sm bg-green-100 text-green-800 px-3 py-1 rounded-full mr-2">
+                        <i class="fa-solid fa-circle-user"></i> Admin
+                    </span>
+                    <button onclick="app.logout()" class="text-red-600 hover:text-red-800 font-semibold text-sm border border-red-200 px-3 py-1 rounded hover:bg-red-50 transition">
+                        <i class="fa-solid fa-right-from-bracket"></i> Đăng xuất
+                    </button>
+                </div>
+            </div>
+
+            <div class="grid md:grid-cols-12 gap-6">
+                <!-- Cột Trái: Form nhập liệu (Chiếm 5 phần) -->
+                <div class="md:col-span-5 bg-white p-6 rounded-lg shadow h-fit">
+                    <h3 class="font-bold text-lg mb-4 border-b pb-2 flex items-center gap-2">
+                        <i class="fa-solid fa-pen-to-square text-green-600"></i> Thêm/Sửa Loài Vật
+                    </h3>
+                    <form id="animal-form" onsubmit="app.saveAnimal(event)" class="space-y-3">
+                        <input type="hidden" id="ani-id">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700">Tên loài</label>
+                            <input type="text" id="ani-name" required class="w-full border rounded p-2 text-sm focus:ring-1 focus:ring-green-500 outline-none">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700">Tên khoa học</label>
+                            <input type="text" id="ani-latin" class="w-full border rounded p-2 text-sm focus:ring-1 focus:ring-green-500 outline-none">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700">Đặc điểm</label>
+                            <textarea id="ani-desc" rows="2" class="w-full border rounded p-2 text-sm focus:ring-1 focus:ring-green-500 outline-none"></textarea>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700">Môi trường sống</label>
+                            <input type="text" id="ani-habitat" class="w-full border rounded p-2 text-sm focus:ring-1 focus:ring-green-500 outline-none">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700">Tình trạng bảo tồn</label>
+                            <select id="ani-status" class="w-full border rounded p-2 text-sm focus:ring-1 focus:ring-green-500 outline-none">
+                                <option value="Ít quan tâm (LC)">Ít quan tâm (LC)</option>
+                                <option value="Sắp bị đe dọa (NT)">Sắp bị đe dọa (NT)</option>
+                                <option value="Sắp nguy cấp (VU)">Sắp nguy cấp (VU)</option>
+                                <option value="Nguy cấp (EN)">Nguy cấp (EN)</option>
+                            </select>
+                        </div>
+                         <div>
+                            <label class="block text-sm font-medium text-gray-700">Tọa độ (Vĩ độ, Kinh độ)</label>
+                            <div class="flex gap-2">
+                                <input type="text" id="ani-lat" placeholder="10.xxx" class="w-1/2 border rounded p-2 text-sm focus:ring-1 focus:ring-green-500 outline-none">
+                                <input type="text" id="ani-lng" placeholder="105.xxx" class="w-1/2 border rounded p-2 text-sm focus:ring-1 focus:ring-green-500 outline-none">
+                            </div>
+                            <small class="text-gray-400 text-xs">Click vào bản đồ để lấy tọa độ (Chức năng nâng cao)</small>
+                        </div>
+                        
+                        <div class="pt-2">
+                            <button type="submit" class="w-full bg-blue-600 text-white py-2 rounded hover:bg-blue-700 transition shadow-sm font-medium">
+                                <i class="fa-solid fa-floppy-disk"></i> Lưu Thông Tin
+                            </button>
+                            <button type="button" onclick="app.resetForm()" class="w-full bg-gray-100 text-gray-600 py-2 rounded hover:bg-gray-200 mt-2 transition text-sm">
+                                Hủy bỏ / Làm mới
+                            </button>
+                        </div>
+                    </form>
+                </div>
+
+                <!-- Cột Phải: Danh sách & Lịch sử (Chiếm 7 phần) -->
+                <div class="md:col-span-7 space-y-6">
+                    <!-- Danh sách Động vật -->
+                    <div class="bg-white p-6 rounded-lg shadow">
+                        <h3 class="font-bold text-lg mb-4 border-b pb-2 flex justify-between items-center">
+                            <span><i class="fa-solid fa-list text-green-600"></i> Danh sách loài</span>
+                            <span class="text-xs font-normal text-gray-500 bg-gray-100 px-2 py-1 rounded" id="total-count">0 loài</span>
+                        </h3>
+                        <ul id="animal-list" class="max-h-64 overflow-y-auto space-y-2 pr-1 scrollbar-thin">
+                            <!-- JS sẽ render vào đây -->
+                        </ul>
+                    </div>
+
+                    <!-- Lịch sử Logs -->
+                    <div class="bg-white p-6 rounded-lg shadow">
+                        <h3 class="font-bold text-lg mb-4 border-b pb-2 text-red-600 flex items-center gap-2">
+                            <i class="fa-solid fa-shield-halved"></i> Nhật ký Bảo mật & IP
+                        </h3>
+                        <div class="max-h-48 overflow-y-auto text-xs border rounded">
+                            <table class="w-full text-left">
+                                <thead class="bg-gray-100 sticky top-0">
+                                    <tr>
+                                        <th class="p-2 border-b">Thời gian</th>
+                                        <th class="p-2 border-b">IP</th>
+                                        <th class="p-2 border-b">Hành động</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="log-table-body">
+                                    <!-- JS render logs -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </main>
+
+    <!-- Footer -->
+    <footer class="bg-gray-800 text-white text-center py-4 mt-auto">
+        <p class="text-sm">© 2025 WildScan Dong Thap. Hệ thống bảo tồn thiên nhiên số.</p>
+    </footer>
+
+    <!-- Leaflet JS -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+    <script>
+        /**
+         * Dữ liệu khởi tạo ban đầu (5 loài mẫu tại Đồng Tháp)
+         */
+        const defaultAnimals = [
+            {
+                id: 1,
+                name: "Sếu đầu đỏ",
+                latin: "Grus antigone sharpii",
+                desc: "Loài chim cao nhất trong các loài chim bay. Đầu và cổ trụi lông, da màu đỏ cam.",
+                habitat: "Đất ngập nước, VQG Tràm Chim",
+                status: "Sắp nguy cấp (VU)",
+                lat: 10.689,
+                lng: 105.512
+            },
+            {
+                id: 2,
+                name: "Cò ốc",
+                latin: "Anastomus oscitans",
+                desc: "Mỏ hở đặc trưng để ăn ốc bươu vàng. Bộ lông màu xám trắng hoặc đen.",
+                habitat: "Ruộng lúa, đầm lầy",
+                status: "Ít quan tâm (LC)",
+                lat: 10.600,
+                lng: 105.600
+            },
+            {
+                id: 3,
+                name: "Rùa hộp lưng đen",
+                latin: "Cuora amboinensis",
+                desc: "Mai hình vòm cao, màu đen. Yếm có thể khép kín hoàn toàn.",
+                habitat: "Ao hồ, kênh rạch tĩnh",
+                status: "Sắp nguy cấp (VU)",
+                lat: 10.555,
+                lng: 105.750
+            },
+            {
+                id: 4,
+                name: "Già đẫy Java",
+                latin: "Leptoptilos javanicus",
+                desc: "Loài hạc cỡ lớn, đầu hói, cổ vàng. Thường kiếm ăn đơn độc.",
+                habitat: "Rừng ngập nước, ven sông",
+                status: "Sắp nguy cấp (VU)",
+                lat: 10.710,
+                lng: 105.480
+            },
+            {
+                id: 5,
+                name: "Mèo cá",
+                latin: "Prionailurus viverrinus",
+                desc: "Kích thước gấp đôi mèo nhà, bơi giỏi, chân có màng.",
+                habitat: "Rừng ngập mặn, vùng đất ngập nước",
+                status: "Nguy cấp (EN)",
+                lat: 10.650,
+                lng: 105.550
+            }
+        ];
+
+        // --- APP CORE LOGIC ---
+        const app = {
+            data: [],
+            logs: [],
+            map: null,
+            currentUserIP: null,
+
+            init: function() {
+                // 1. Load data
+                const storedData = localStorage.getItem('wildData');
+                if (storedData) {
+                    this.data = JSON.parse(storedData);
+                } else {
+                    this.data = defaultAnimals;
+                    this.saveData();
+                }
+
+                const storedLogs = localStorage.getItem('wildLogs');
+                if (storedLogs) this.logs = JSON.parse(storedLogs);
+
+                // 2. IP
+                this.currentUserIP = "113.161." + Math.floor(Math.random()*255) + "." + Math.floor(Math.random()*255);
+                
+                // 3. Render initial
+                this.renderAdminList();
+                this.renderLogs();
+
+                // 4. Mặc định vào trang chủ
+                this.navTo('home');
+                
+                console.log("App Ready. IP: " + this.currentUserIP);
+            },
+
+            // --- NAVIGATION SYSTEM ---
+            navTo: function(target) {
+                // 1. Ẩn tất cả các section
+                ['section-home', 'section-login', 'section-admin'].forEach(id => {
+                    document.getElementById(id).classList.add('hidden-section');
+                });
+
+                // 2. Cập nhật Nav Active State
+                document.getElementById('nav-home').classList.remove('active');
+                document.getElementById('nav-admin').classList.remove('active');
+
+                // 3. Xử lý Logic chuyển trang
+                if (target === 'home') {
+                    document.getElementById('section-home').classList.remove('hidden-section');
+                    document.getElementById('nav-home').classList.add('active');
+                } 
+                else if (target === 'admin') {
+                    // Kiểm tra đã đăng nhập chưa
+                    document.getElementById('nav-admin').classList.add('active');
+                    const isAdminLogged = sessionStorage.getItem('adminLogged') === 'true';
+                    
+                    if (isAdminLogged) {
+                        document.getElementById('section-admin').classList.remove('hidden-section');
+                    } else {
+                        document.getElementById('section-login').classList.remove('hidden-section');
+                    }
+                }
+            },
+
+            saveData: function() {
+                localStorage.setItem('wildData', JSON.stringify(this.data));
+                this.renderAdminList();
+            },
+
+            addLog: function(action) {
+                const log = {
+                    time: new Date().toLocaleString('vi-VN'),
+                    ip: this.currentUserIP,
+                    action: action
+                };
+                this.logs.unshift(log);
+                if (this.logs.length > 50) this.logs.pop();
+                localStorage.setItem('wildLogs', JSON.stringify(this.logs));
+                this.renderLogs();
+            },
+
+            // --- AUTHENTICATION ---
+            login: function() {
+                const pass = document.getElementById('admin-pass').value;
+                if (pass === '1234') {
+                    sessionStorage.setItem('adminLogged', 'true');
+                    this.addLog("Admin đăng nhập thành công");
+                    alert("Đăng nhập thành công! Chào mừng Admin.");
+                    document.getElementById('admin-pass').value = '';
+                    
+                    // Chuyển ngay sang Dashboard
+                    this.navTo('admin');
+                } else {
+                    alert("Mật khẩu sai! Vui lòng thử lại.");
+                    this.addLog("Đăng nhập thất bại (Sai pass)");
+                }
+            },
+
+            logout: function() {
+                sessionStorage.removeItem('adminLogged');
+                this.addLog("Admin đăng xuất");
+                // Quay về trang chủ hoặc trang login
+                this.navTo('home');
+            },
+
+            // --- USER: SCAN & MAP ---
+            handleImageUpload: function(input) {
+                if (input.files && input.files[0]) {
+                    const reader = new FileReader();
+                    reader.onload = function(e) {
+                        const img = document.getElementById('preview-img');
+                        img.src = e.target.result;
+                        img.classList.remove('hidden');
+                        document.getElementById('upload-placeholder').classList.add('hidden');
+                        document.getElementById('btn-scan').disabled = false;
+                        document.getElementById('result-card').classList.add('hidden');
+                    };
+                    reader.readAsDataURL(input.files[0]);
+                }
+            },
+
+            startScan: function() {
+                const btn = document.getElementById('btn-scan');
+                const scanEffect = document.getElementById('scan-effect');
+                
+                btn.disabled = true;
+                btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Đang xử lý AI...';
+                scanEffect.style.display = 'block';
+
+                setTimeout(() => {
+                    scanEffect.style.display = 'none';
+                    btn.disabled = false;
+                    btn.innerHTML = '<i class="fa-solid fa-magnifying-glass"></i> PHÂN TÍCH AI';
+                    
+                    this.processAIResult();
+                    this.addLog("Người dùng quét ảnh nhận diện");
+                }, 2000);
+            },
+
+            processAIResult: function() {
+                if(this.data.length === 0) {
+                    alert("Chưa có dữ liệu động vật nào trong hệ thống.");
+                    return;
+                }
+                const randomIndex = Math.floor(Math.random() * this.data.length);
+                const result = this.data[randomIndex];
+
+                document.getElementById('res-name').innerText = result.name;
+                document.getElementById('res-latin').innerText = result.latin;
+                document.getElementById('res-desc').innerText = result.desc;
+                document.getElementById('res-habitat').innerText = result.habitat;
+                document.getElementById('res-status').innerText = result.status;
+                
+                document.getElementById('result-card').classList.remove('hidden');
+                document.getElementById('result-card').scrollIntoView({ behavior: 'smooth' });
+
+                this.initMap(result.lat, result.lng, result.name);
+            },
+
+            initMap: function(lat, lng, name) {
+                if (this.map) this.map.remove();
+
+                setTimeout(() => {
+                    this.map = L.map('map').setView([lat, lng], 10);
+                    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                        attribution: '&copy; OpenStreetMap contributors'
+                    }).addTo(this.map);
+
+                    L.marker([lat, lng]).addTo(this.map)
+                        .bindPopup(`<b>${name}</b><br>Khu vực phân bố.`)
+                        .openPopup();
+                    
+                    this.map.invalidateSize();
+                }, 100);
+            },
+
+            // --- ADMIN: CRUD ---
+            renderAdminList: function() {
+                const list = document.getElementById('animal-list');
+                document.getElementById('total-count').innerText = this.data.length + " loài";
+                list.innerHTML = '';
+                
+                if(this.data.length === 0) {
+                    list.innerHTML = '<li class="text-center text-gray-400 text-sm py-4">Chưa có dữ liệu.</li>';
+                    return;
+                }
+
+                this.data.forEach((ani, index) => {
+                    const li = document.createElement('li');
+                    li.className = "flex justify-between items-center bg-gray-50 p-3 rounded border hover:bg-gray-100 transition";
+                    li.innerHTML = `
+                        <div>
+                            <div class="font-bold text-gray-800">${ani.name}</div>
+                            <div class="text-xs text-gray-500 italic">${ani.latin}</div>
+                        </div>
+                        <div class="flex gap-3">
+                            <button onclick="app.editAnimal(${index})" class="text-blue-500 hover:text-blue-700 tooltip" title="Sửa"><i class="fa-solid fa-pen"></i></button>
+                            <button onclick="app.deleteAnimal(${index})" class="text-red-500 hover:text-red-700 tooltip" title="Xóa"><i class="fa-solid fa-trash"></i></button>
+                        </div>
+                    `;
+                    list.appendChild(li);
+                });
+            },
+
+            renderLogs: function() {
+                const tbody = document.getElementById('log-table-body');
+                tbody.innerHTML = '';
+                this.logs.forEach(log => {
+                    const tr = document.createElement('tr');
+                    tr.className = "border-b hover:bg-gray-50";
+                    tr.innerHTML = `
+                        <td class="p-2 text-gray-600 whitespace-nowrap">${log.time}</td>
+                        <td class="p-2 font-mono text-blue-600 text-xs">${log.ip}</td>
+                        <td class="p-2 text-gray-700">${log.action}</td>
+                    `;
+                    tbody.appendChild(tr);
+                });
+            },
+
+            resetForm: function() {
+                document.getElementById('animal-form').reset();
+                document.getElementById('ani-id').value = '';
+            },
+
+            editAnimal: function(index) {
+                const ani = this.data[index];
+                document.getElementById('ani-id').value = index;
+                document.getElementById('ani-name').value = ani.name;
+                document.getElementById('ani-latin').value = ani.latin;
+                document.getElementById('ani-desc').value = ani.desc;
+                document.getElementById('ani-habitat').value = ani.habitat;
+                document.getElementById('ani-status').value = ani.status;
+                document.getElementById('ani-lat').value = ani.lat;
+                document.getElementById('ani-lng').value = ani.lng;
+                
+                // Cuộn lên form
+                document.querySelector('#animal-form').scrollIntoView({ behavior: 'smooth' });
+            },
+
+            saveAnimal: function(e) {
+                e.preventDefault();
+                const id = document.getElementById('ani-id').value;
+                const newAni = {
+                    name: document.getElementById('ani-name').value,
+                    latin: document.getElementById('ani-latin').value,
+                    desc: document.getElementById('ani-desc').value,
+                    habitat: document.getElementById('ani-habitat').value,
+                    status: document.getElementById('ani-status').value,
+                    lat: parseFloat(document.getElementById('ani-lat').value) || 10.6,
+                    lng: parseFloat(document.getElementById('ani-lng').value) || 105.5
+                };
+
+                if (id !== '') {
+                    this.data[id] = { ...this.data[id], ...newAni };
+                    this.addLog(`Admin sửa: ${newAni.name}`);
+                } else {
+                    newAni.id = Date.now();
+                    this.data.push(newAni);
+                    this.addLog(`Admin thêm: ${newAni.name}`);
+                }
+
+                this.saveData();
+                this.resetForm();
+                alert("Đã lưu thông tin thành công!");
+            },
+
+            deleteAnimal: function(index) {
+                if(confirm("Bạn có chắc muốn xóa loài này không? Hành động không thể hoàn tác.")) {
+                    const name = this.data[index].name;
+                    this.data.splice(index, 1);
+                    this.saveData();
+                    this.addLog(`Admin xóa: ${name}`);
+                }
+            }
+        };
+
+        window.onload = function() {
+            app.init();
+        };
+    </script>
+</body>
+</html>
